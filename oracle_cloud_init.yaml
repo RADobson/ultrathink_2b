@@ -1,0 +1,25 @@
+#cloud-config
+ package_update: true
+ package_upgrade: true
+
+ packages:
+   - git
+   - curl
+   - nano
+   - ufw
+
+ runcmd:
+   - curl -fsSL https://get.docker.com | sh
+   - usermod -aG docker ubuntu
+   - netfilter-persistent stop
+   - netfilter-persistent flush
+   - ufw default deny incoming
+   - ufw default allow outgoing
+   - ufw allow 22/tcp
+   - ufw allow 80/tcp
+   - ufw allow 443/tcp
+   - ufw --force enable
+   - netfilter-persistent save
+   - mkdir -p /home/ubuntu/ultrathink
+   - chown -R ubuntu:ubuntu /home/ubuntu/ultrathink
+ final_message: "System setup complete."
