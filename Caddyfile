@@ -1,0 +1,25 @@
+# =============================================================================
+# Ultrathink Caddy Configuration
+# Automatic HTTPS with Let's Encrypt
+# =============================================================================
+
+# n8n - Main automation interface
+{$N8N_DOMAIN} {
+    reverse_proxy n8n:5678
+}
+
+# Obsidian VNC - For initial setup (consider removing after config)
+{$OBSIDIAN_DOMAIN} {
+    reverse_proxy obsidian:3000
+}
+
+# CouchDB - For Obsidian LiveSync
+# Note: You may want to restrict this to specific IPs in production
+{$COUCHDB_DOMAIN} {
+    reverse_proxy couchdb:5984
+
+    # CORS headers for Obsidian LiveSync
+    header Access-Control-Allow-Origin *
+    header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    header Access-Control-Allow-Headers "Content-Type, Authorization"
+}

@@ -1,0 +1,24 @@
+# Exclude original conversation
+gemini_chat.txt
+
+# Claude Code settings
+.claude/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

@@ -1,0 +1,464 @@
+{
+  "name": "Ultrathink - Bouncer & Fix",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "ultrathink-bouncer"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "is-reply",
+              "leftValue": "={{ $json.message.reply_to_message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ]
+        }
+      },
+      "id": "is-reply",
+      "name": "Is Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "is-fix",
+              "leftValue": "={{ $json.message.text.toLowerCase() }}",
+              "rightValue": "fix:",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ]
+        }
+      },
+      "id": "is-fix-command",
+      "name": "Is Fix Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the user's reply to determine category and original note\nconst message = $input.first().json.message;\nconst replyText = message.text.toLowerCase().trim();\nconst botMessage = message.reply_to_message?.text || '';\n\n// Valid categories\nconst validCategories = ['people', 'projects', 'ideas', 'admin'];\n\n// Determine if this is a fix command or a clarification\nconst isFix = replyText.startsWith('fix:');\n\nlet category = null;\nlet originalNote = '';\nlet originalName = '';\n\nif (isFix) {\n  // Fix command: \"fix: should be people\" or \"fix: people\"\n  const fixPart = replyText.replace('fix:', '').trim();\n  category = validCategories.find(c => fixPart.includes(c));\n  \n  // Extract original name from bot's confirmation message\n  // Format: 'Filed as PROJECTS: \"Project Name\"'\n  const nameMatch = botMessage.match(/: \"([^\"]+)\"/);\n  originalName = nameMatch ? nameMatch[1] : 'Unknown';\n  \n  // Extract original category\n  const catMatch = botMessage.match(/Filed as (\\w+):/);\n  const originalCategory = catMatch ? catMatch[1].toLowerCase() : null;\n  \n  return {\n    json: {\n      action: 'fix',\n      new_category: category,\n      old_category: originalCategory,\n      name: originalName,\n      timestamp: new Date().toISOString()\n    }\n  };\n} else {\n  // Clarification reply: user just says \"projects\" or \"people\"\n  category = validCategories.find(c => replyText.includes(c));\n  \n  // Extract original note from bot's question\n  // Format: 'I'm not confident...\"original text here\"'\n  const noteMatch = botMessage.match(/\"([^\"]+)\"/);\n  originalNote = noteMatch ? noteMatch[1] : replyText;\n  \n  return {\n    json: {\n      action: 'clarify',\n      category: category || 'admin',\n      original_text: originalNote,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+      },
+      "id": "parse-command",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "is-clarify",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "clarify",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Clarify or Fix?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Extract structured data for a {{ $json.category }} entry. Return ONLY valid JSON.\\n\\nFor {{ $json.category }}, return:\\n{\\n  \\\"name\\\": \\\"short title\\\",\\n  \\\"fields\\\": {\\n    {{ $json.category === 'people' ? '\\\"context\\\": \\\"how you know them\\\", \\\"follow_ups\\\": \\\"things to remember\\\"' : '' }}{{ $json.category === 'projects' ? '\\\"status\\\": \\\"active\\\", \\\"next_action\\\": \\\"SPECIFIC action\\\", \\\"notes\\\": \\\"context\\\"' : '' }}{{ $json.category === 'ideas' ? '\\\"oneliner\\\": \\\"core insight\\\", \\\"notes\\\": \\\"elaboration\\\"' : '' }}{{ $json.category === 'admin' ? '\\\"due_date\\\": \\\"YYYY-MM-DD if mentioned\\\", \\\"status\\\": \\\"todo\\\"' : '' }}\\n  }\\n}\\n\\nNote: {{ $json.original_text }}\"\n    }\n  ]\n}"
+      },
+      "id": "claude-extract",
+      "name": "Claude Extract Fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropic-api",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response and merge with category info\nconst response = $input.first().json;\nconst prevData = $('Parse Command').first().json;\nconst text = response.content[0].text;\n\nlet jsonStr = text;\nif (text.includes('```')) {\n  const match = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n  if (match) jsonStr = match[1];\n}\n\ntry {\n  const parsed = JSON.parse(jsonStr.trim());\n  return {\n    json: {\n      category: prevData.category,\n      name: parsed.name,\n      fields: parsed.fields,\n      original_text: prevData.original_text,\n      timestamp: prevData.timestamp\n    }\n  };\n} catch (e) {\n  return {\n    json: {\n      category: prevData.category,\n      name: prevData.original_text.substring(0, 30),\n      fields: {},\n      original_text: prevData.original_text,\n      timestamp: prevData.timestamp\n    }\n  };\n}"
+      },
+      "id": "parse-extract",
+      "name": "Parse Extracted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "is-people",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "people",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "route-category",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1790, 100]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/data/obsidian/Vault/People/{{ $json.name.replace(/[^a-zA-Z0-9 ]/g, '') }}.md",
+        "options": {},
+        "text": "=---\ntype: people\ncreated: {{ $json.timestamp.slice(0,10) }}\nlast_touched: {{ $json.timestamp.slice(0,10) }}\n---\n\n# {{ $json.name }}\n\n## Context\n{{ $json.fields.context || $json.original_text }}\n\n## Follow-ups\n{{ $json.fields.follow_ups ? '- ' + $json.fields.follow_ups : '- (none yet)' }}\n"
+      },
+      "id": "write-people",
+      "name": "Write: People",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2010, -50]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/data/obsidian/Vault/Projects/{{ $json.name.replace(/[^a-zA-Z0-9 ]/g, '') }}.md",
+        "options": {},
+        "text": "=---\ntype: project\nstatus: {{ $json.fields.status || 'active' }}\ncreated: {{ $json.timestamp.slice(0,10) }}\n---\n\n# {{ $json.name }}\n\n## Next Action\n{{ $json.fields.next_action || 'Define next action' }}\n\n## Notes\n{{ $json.fields.notes || $json.original_text }}\n"
+      },
+      "id": "write-projects",
+      "name": "Write: Projects",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2010, 50]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/data/obsidian/Vault/Ideas/{{ $json.name.replace(/[^a-zA-Z0-9 ]/g, '') }}.md",
+        "options": {},
+        "text": "=---\ntype: idea\ncreated: {{ $json.timestamp.slice(0,10) }}\n---\n\n# {{ $json.name }}\n\n## Oneliner\n{{ $json.fields.oneliner || $json.original_text }}\n\n## Notes\n{{ $json.fields.notes || '' }}\n"
+      },
+      "id": "write-ideas",
+      "name": "Write: Ideas",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2010, 150]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/data/obsidian/Vault/Admin/{{ $json.name.replace(/[^a-zA-Z0-9 ]/g, '') }}.md",
+        "options": {},
+        "text": "=---\ntype: admin\ndue: {{ $json.fields.due_date || '' }}\nstatus: {{ $json.fields.status || 'todo' }}\ncreated: {{ $json.timestamp.slice(0,10) }}\n---\n\n# {{ $json.name }}\n\n{{ $json.original_text }}\n"
+      },
+      "id": "write-admin",
+      "name": "Write: Admin",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2010, 250]
+    },
+    {
+      "parameters": {
+        "operation": "appendToFile",
+        "fileName": "/data/obsidian/Vault/Inbox-Log.md",
+        "options": {},
+        "text": "=| {{ $('Parse Extracted').first().json.timestamp.slice(0,16).replace('T',' ') }} | {{ $('Parse Extracted').first().json.original_text.substring(0,50) }} | {{ $('Parse Extracted').first().json.category }} | {{ $('Parse Extracted').first().json.name }} | manual | filed |\n"
+      },
+      "id": "log-clarified",
+      "name": "Log: Clarified",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2230, 100]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=Got it! Filed as {{ $('Parse Extracted').first().json.category.toUpperCase() }}: \"{{ $('Parse Extracted').first().json.name }}\"",
+        "additionalFields": {}
+      },
+      "id": "confirm-clarified",
+      "name": "Confirm Clarified",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2450, 100],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=Fixed! Moved \"{{ $('Parse Command').first().json.name }}\" from {{ $('Parse Command').first().json.old_category.toUpperCase() }} to {{ $('Parse Command').first().json.new_category.toUpperCase() }}.\n\n(Note: You may need to manually delete the old file)",
+        "additionalFields": {}
+      },
+      "id": "confirm-fix",
+      "name": "Confirm Fix",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1350, 350],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Reply?": {
+      "main": [
+        [
+          {
+            "node": "Is Fix Command?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Is Fix Command?": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Clarify or Fix?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clarify or Fix?": {
+      "main": [
+        [
+          {
+            "node": "Claude Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Extract Fields": {
+      "main": [
+        [
+          {
+            "node": "Parse Extracted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extracted": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Write: People",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write: Projects",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write: Ideas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write: Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write: People": {
+      "main": [
+        [
+          {
+            "node": "Log: Clarified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write: Projects": {
+      "main": [
+        [
+          {
+            "node": "Log: Clarified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write: Ideas": {
+      "main": [
+        [
+          {
+            "node": "Log: Clarified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write: Admin": {
+      "main": [
+        [
+          {
+            "node": "Log: Clarified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log: Clarified": {
+      "main": [
+        [
+          {
+            "node": "Confirm Clarified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "ultrathink",
+      "name": "ultrathink"
+    }
+  ],
+  "triggerCount": 1
+}

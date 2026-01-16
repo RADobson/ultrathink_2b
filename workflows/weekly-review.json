@@ -1,0 +1,207 @@
+{
+  "name": "Ultrathink - Weekly Review",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "cron-sunday-4pm",
+      "name": "Sunday 4PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/Projects -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No projects'"
+      },
+      "id": "read-projects",
+      "name": "Read Projects",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 200]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/People -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No people'"
+      },
+      "id": "read-people",
+      "name": "Read People",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/data/obsidian/Vault/Inbox-Log.md",
+        "options": {}
+      },
+      "id": "read-inbox-log",
+      "name": "Read Inbox Log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [470, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all the data\nconst projects = $('Read Projects').first()?.json?.stdout || 'No projects';\nconst people = $('Read People').first()?.json?.stdout || 'No people';\nconst inboxLog = $('Read Inbox Log').first()?.json?.data || 'No inbox log';\n\n// Filter inbox log to last 7 days (simple approach - Claude will handle the filtering)\nreturn {\n  json: {\n    projects,\n    people,\n    inbox_log: inboxLog\n  }\n};"
+      },
+      "id": "combine-data",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 800,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Create a weekly review under 250 words. Focus on the last 7 days. Be specific and actionable.\\n\\nFormat EXACTLY like this:\\n\\nWHAT HAPPENED\\n[2-3 sentence summary of the week's activity based on the inbox log and current projects]\\n\\nBIGGEST OPEN LOOPS\\n- [top unresolved item from projects]\\n- [second unresolved item]\\n- [third unresolved item or person to follow up with]\\n\\nSUGGESTED ACTIONS FOR NEXT WEEK\\n1. [specific action to move biggest project forward]\\n2. [specific action for second priority]\\n3. [specific action - could be admin, person, or idea to explore]\\n\\nRECURRING THEME\\n- [one pattern you noticed across the entries - what keeps coming up?]\\n\\n---\\n\\nINBOX LOG (recent captures):\\n{{ $json.inbox_log }}\\n\\nPROJECTS:\\n{{ $json.projects }}\\n\\nPEOPLE:\\n{{ $json.people }}\"\n    }\n  ]\n}"
+      },
+      "id": "claude-review",
+      "name": "Claude Weekly Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropic-api",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=Weekly Review\\n\\n{{ $json.content[0].text }}",
+        "additionalFields": {}
+      },
+      "id": "send-review",
+      "name": "Send Weekly Review",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1130, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Sunday 4PM": {
+      "main": [
+        [
+          {
+            "node": "Read Projects",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read People",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Inbox Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Projects": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read People": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Inbox Log": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Claude Weekly Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Weekly Review": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Australia/Brisbane"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "ultrathink",
+      "name": "ultrathink"
+    }
+  ],
+  "triggerCount": 1
+}

@@ -1,0 +1,256 @@
+{
+  "name": "Ultrathink - Morning Briefing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-7am",
+      "name": "Every Day 7AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/Projects -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No projects'"
+      },
+      "id": "read-projects",
+      "name": "Read Projects",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 200]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/People -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No people'"
+      },
+      "id": "read-people",
+      "name": "Read People",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/Admin -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No admin tasks'"
+      },
+      "id": "read-admin",
+      "name": "Read Admin",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 400]
+    },
+    {
+      "parameters": {
+        "command": "find /data/obsidian/Vault/Ideas -name '*.md' -exec cat {} \\; 2>/dev/null || echo 'No ideas'"
+      },
+      "id": "read-ideas",
+      "name": "Read Ideas",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 500]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-all",
+      "name": "Merge All",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all the data from the four reads\nconst projects = $('Read Projects').first()?.json?.stdout || 'No projects';\nconst people = $('Read People').first()?.json?.stdout || 'No people';\nconst admin = $('Read Admin').first()?.json?.stdout || 'No admin tasks';\nconst ideas = $('Read Ideas').first()?.json?.stdout || 'No ideas';\n\nreturn {\n  json: {\n    projects,\n    people,\n    admin,\n    ideas\n  }\n};"
+      },
+      "id": "combine-data",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 500,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Create a morning briefing under 150 words. Be specific and actionable. No fluff.\\n\\nFormat EXACTLY like this:\\n\\nTOP 3 ACTIONS\\n1. [specific next action from a project]\\n2. [specific next action]\\n3. [specific next action or admin task]\\n\\nSTUCK ON\\n- [one thing that seems blocked, avoided, or has been sitting too long]\\n\\nSMALL WIN\\n- [one recent completion or progress to acknowledge, or encouraging note if nothing completed]\\n\\n---\\n\\nPROJECTS (look for Next Action fields):\\n{{ $json.projects }}\\n\\nPEOPLE (look for Follow-ups):\\n{{ $json.people }}\\n\\nADMIN TASKS:\\n{{ $json.admin }}\\n\\nIDEAS (optional, mention if interesting):\\n{{ $json.ideas }}\"\n    }\n  ]\n}"
+      },
+      "id": "claude-summarize",
+      "name": "Claude Summarize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1130, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropic-api",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=Good morning!\\n\\n{{ $json.content[0].text }}",
+        "additionalFields": {}
+      },
+      "id": "send-briefing",
+      "name": "Send Briefing",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1350, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Day 7AM": {
+      "main": [
+        [
+          {
+            "node": "Read Projects",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read People",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Admin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Ideas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Projects": {
+      "main": [
+        [
+          {
+            "node": "Merge All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read People": {
+      "main": [
+        [
+          {
+            "node": "Merge All",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Read Admin": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Ideas": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Claude Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Summarize": {
+      "main": [
+        [
+          {
+            "node": "Send Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Australia/Brisbane"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "ultrathink",
+      "name": "ultrathink"
+    }
+  ],
+  "triggerCount": 1
+}
