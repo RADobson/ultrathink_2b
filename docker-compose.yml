@@ -1,106 +1,14 @@
 version: "3.8"
-
 services:
-  # =============================================================================
-  # CouchDB - Sync Backend for Obsidian LiveSync
-  # =============================================================================
-  couchdb:
-    image: couchdb:3.3.3
-    container_name: ultrathink_couchdb
-    restart: always
-    environment:
-      - COUCHDB_USER=${COUCHDB_USER}
-      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
-    volumes:
-      - couchdb_data:/opt/couchdb/data
-    networks:
-      - ultrathink
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5984/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # =============================================================================
-  # Headless Obsidian - The "Ghost" Bridge
-  # Runs the actual Obsidian desktop app via VNC to handle LiveSync
-  # =============================================================================
-  obsidian:
-    image: lscr.io/linuxserver/obsidian:latest
-    container_name: ultrathink_obsidian
+  ultrathink:
+    build: .
+    container_name: ultrathink
     restart: unless-stopped
-    security_opt:
-      - seccomp:unconfined  # Required for Electron apps in Docker
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TIMEZONE}
-    volumes:
-      - obsidian_config:/config
-      - shared_vault:/vault  # THE MAGIC: Shared volume for the Vault
-    networks:
-      - ultrathink
-    depends_on:
-      couchdb:
-        condition: service_healthy
-
-  # =============================================================================
-  # n8n - The Automation Brain
-  # =============================================================================
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: ultrathink_n8n
-    restart: always
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
-      - GENERIC_TIMEZONE=${TIMEZONE}
-      - TZ=${TIMEZONE}
-      - WEBHOOK_URL=https://${N8N_DOMAIN}
-      - N8N_HOST=${N8N_DOMAIN}
-      - N8N_PROTOCOL=https
-      # Pass through for workflows
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TZ=${TIMEZONE:-Australia/Brisbane}
+      - CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD:-0.6}
     volumes:
-      - n8n_data:/home/node/.n8n
-      - shared_vault:/data/obsidian:rw  # THE MAGIC: Access to the same vault
-    networks:
-      - ultrathink
-    depends_on:
-      - obsidian
-
-  # =============================================================================
-  # Caddy - Reverse Proxy with Automatic SSL
-  # =============================================================================
-  caddy:
-    image: caddy:2-alpine
-    container_name: ultrathink_caddy
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - ultrathink
-    depends_on:
-      - n8n
-      - obsidian
-      - couchdb
-
-networks:
-  ultrathink:
-    driver: bridge
-
-volumes:
-  couchdb_data:
-  obsidian_config:
-  shared_vault:      # The critical shared volume
-  n8n_data:
-  caddy_data:
-  caddy_config:
+      - ./vault:/vault
