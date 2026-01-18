@@ -208,7 +208,7 @@ class VaultService:
         return False
 
     def read_all_notes(self) -> str:
-        """Read all notes for briefings."""
+        """Read all active notes for briefings (excludes done)."""
         contents = []
         for category in CATEGORIES:
             category_path = self.vault_path / category
@@ -216,6 +216,9 @@ class VaultService:
                 for file_path in category_path.glob("*.md"):
                     try:
                         text = file_path.read_text()
+                        # Skip done notes
+                        if "status: done" in text:
+                            continue
                         contents.append(f"=== {category}/{file_path.name} ===\n{text}")
                     except Exception as e:
                         logger.error(f"Error reading {file_path}: {e}")
@@ -464,6 +467,12 @@ class UltrathinkBot:
         reply_text = update.message.text.strip()
         original_msg = update.message.reply_to_message
 
+        # Check for done command
+        done_match = re.match(r"done:\s*(.+)?", reply_text, re.IGNORECASE)
+        if done_match:
+            await self._handle_done(update, original_msg, done_match.group(1))
+            return
+
         # Check for fix command
         fix_match = re.match(r"fix:\s*(\w+)", reply_text, re.IGNORECASE)
         if fix_match:
@@ -514,6 +523,46 @@ class UltrathinkBot:
             await update.message.reply_text(f"Moved '{name}' from {old_category} to {new_category}")
         else:
             await update.message.reply_text(f"File not found: {old_path.name}")
+
+    async def _handle_done(self, update: Update, original_msg, note_hint: str = None):
+        """Mark a note as done by changing its status."""
+        if not note_hint:
+            await update.message.reply_text("Usage: done: <note name>")
+            return
+
+        # Search for note across all categories
+        note_hint = note_hint.strip().lower()
+        found_path = None
+        found_name = None
+
+        for category in CATEGORIES:
+            category_path = self.config.vault_path / category
+            if category_path.exists():
+                for file_path in category_path.glob("*.md"):
+                    # Match against filename or title in content
+                    if note_hint in file_path.stem.lower():
+                        found_path = file_path
+                        found_name = file_path.stem
+                        break
+                    try:
+                        content = file_path.read_text()
+                        title_match = re.search(r"^# (.+)$", content, re.MULTILINE)
+                        if title_match and note_hint in title_match.group(1).lower():
+                            found_path = file_path
+                            found_name = title_match.group(1)
+                            break
+                    except Exception:
+                        pass
+            if found_path:
+                break
+
+        if found_path:
+            content = found_path.read_text()
+            content = re.sub(r"status: \w+", "status: done", content)
+            found_path.write_text(content)
+            await update.message.reply_text(f"Marked '{found_name}' as done")
+        else:
+            await update.message.reply_text(f"No note found matching: {note_hint}")
 
     async def _handle_category_answer(
         self, update: Update, original_msg, category: str
