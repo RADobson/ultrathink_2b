@@ -383,6 +383,18 @@ class UltrathinkBot:
         if message_text.startswith("/"):
             return
 
+        # Check for done: command (works without reply)
+        done_match = re.match(r"done:\s*(.+)", message_text, re.IGNORECASE)
+        if done_match:
+            await self._handle_done_standalone(update, done_match.group(1))
+            return
+
+        # Check for fix: command (standalone requires category + note)
+        fix_match = re.match(r"fix:\s*(\w+)\s+(.+)", message_text, re.IGNORECASE)
+        if fix_match:
+            await self._handle_fix_standalone(update, fix_match.group(1), fix_match.group(2))
+            return
+
         await self._process_text(message_text, update, context)
 
     async def _process_text(
@@ -525,12 +537,14 @@ class UltrathinkBot:
             await update.message.reply_text(f"File not found: {old_path.name}")
 
     async def _handle_done(self, update: Update, original_msg, note_hint: str = None):
-        """Mark a note as done by changing its status."""
+        """Mark a note as done (reply-based). Delegates to standalone handler."""
         if not note_hint:
             await update.message.reply_text("Usage: done: <note name>")
             return
+        await self._handle_done_standalone(update, note_hint)
 
-        # Search for note across all categories
+    async def _handle_done_standalone(self, update: Update, note_hint: str):
+        """Mark a note as done (standalone message, not reply)."""
         note_hint = note_hint.strip().lower()
         found_path = None
         found_name = None
@@ -539,11 +553,12 @@ class UltrathinkBot:
             category_path = self.config.vault_path / category
             if category_path.exists():
                 for file_path in category_path.glob("*.md"):
-                    # Match against filename or title in content
-                    if note_hint in file_path.stem.lower():
+                    # Match against filename (convert hyphens to spaces)
+                    if note_hint in file_path.stem.lower().replace("-", " "):
                         found_path = file_path
                         found_name = file_path.stem
                         break
+                    # Match against title in content
                     try:
                         content = file_path.read_text()
                         title_match = re.search(r"^# (.+)$", content, re.MULTILINE)
@@ -563,6 +578,53 @@ class UltrathinkBot:
             await update.message.reply_text(f"Marked '{found_name}' as done")
         else:
             await update.message.reply_text(f"No note found matching: {note_hint}")
+
+    async def _handle_fix_standalone(self, update: Update, new_category: str, note_hint: str):
+        """Move a note to a different category (standalone message)."""
+        new_category = self._match_category(new_category)
+        if not new_category:
+            await update.message.reply_text("Unknown category. Use: People, Projects, Ideas, Admin")
+            return
+
+        # Find the note
+        note_hint = note_hint.strip().lower()
+        found_path = None
+        old_category = None
+
+        for category in CATEGORIES:
+            category_path = self.config.vault_path / category
+            if category_path.exists():
+                for file_path in category_path.glob("*.md"):
+                    # Match against filename (convert hyphens to spaces)
+                    if note_hint in file_path.stem.lower().replace("-", " "):
+                        found_path = file_path
+                        old_category = category
+                        break
+                    # Match against title in content
+                    try:
+                        content = file_path.read_text()
+                        title_match = re.search(r"^# (.+)$", content, re.MULTILINE)
+                        if title_match and note_hint in title_match.group(1).lower():
+                            found_path = file_path
+                            old_category = category
+                            break
+                    except Exception:
+                        pass
+            if found_path:
+                break
+
+        if not found_path:
+            await update.message.reply_text(f"No note found matching: {note_hint}")
+            return
+
+        # Move the file
+        content = found_path.read_text()
+        content = re.sub(r"type: \w+", f"type: {new_category.lower()}", content)
+        new_path = self.config.vault_path / new_category / found_path.name
+        new_path.write_text(content)
+        found_path.unlink()
+
+        await update.message.reply_text(f"Moved '{found_path.stem}' from {old_category} to {new_category}")
 
     async def _handle_category_answer(
         self, update: Update, original_msg, category: str
