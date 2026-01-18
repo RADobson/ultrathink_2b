@@ -1,6 +1,15 @@
 # Exclude original conversation
 gemini_chat.txt
 
+# Vault data (user notes)
+vault/
+
+# Docker/runtime data
+filebrowser.db
+syncthing-config/
+__pycache__/
+.env.backup
+
 # Claude Code settings
 .claude/
 
