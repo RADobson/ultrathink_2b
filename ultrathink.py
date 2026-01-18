@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import yaml
 import pytz
 import anthropic
+import openai
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update
 from telegram.ext import (
@@ -42,6 +43,7 @@ class Config:
     telegram_token: str
     telegram_chat_id: int
     anthropic_api_key: str
+    openai_api_key: str
     vault_path: Path
     timezone: str
     confidence_threshold: float
@@ -52,6 +54,7 @@ class Config:
             telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
             telegram_chat_id=int(os.environ["TELEGRAM_CHAT_ID"]),
             anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
+            openai_api_key=os.environ["OPENAI_API_KEY"],
             vault_path=Path(os.environ.get("VAULT_PATH", "/vault")),
             timezone=os.environ.get("TZ", "Australia/Brisbane"),
             confidence_threshold=float(os.environ.get("CONFIDENCE_THRESHOLD", "0.6")),
@@ -254,9 +257,10 @@ class VaultService:
 
 
 class ClaudeService:
-    def __init__(self, api_key: str):
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = "claude-sonnet-4-5-20250514"
+    def __init__(self, anthropic_api_key: str, openai_api_key: str):
+        self.client = anthropic.Anthropic(api_key=anthropic_api_key)
+        self.openai_client = openai.OpenAI(api_key=openai_api_key)
+        self.model = "claude-sonnet-4-5-20250929"
 
     def classify(self, message: str) -> dict:
         """Classify a message into a category."""
@@ -315,6 +319,14 @@ class ClaudeService:
         )
         return response.content[0].text
 
+    def transcribe_audio(self, audio_bytes: bytes) -> str:
+        """Transcribe audio using OpenAI Whisper API."""
+        response = self.openai_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("audio.ogg", audio_bytes),
+        )
+        return response.text
+
 
 # =============================================================================
 # State Manager
@@ -349,12 +361,12 @@ class UltrathinkBot:
     def __init__(self, config: Config):
         self.config = config
         self.vault = VaultService(config.vault_path)
-        self.claude = ClaudeService(config.anthropic_api_key)
+        self.claude = ClaudeService(config.anthropic_api_key, config.openai_api_key)
         self.state = StateManager()
         self.tz = pytz.timezone(config.timezone)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Main capture handler for new messages."""
+        """Main capture handler for new text messages."""
         if not update.message or not update.message.text:
             return
 
@@ -368,6 +380,12 @@ class UltrathinkBot:
         if message_text.startswith("/"):
             return
 
+        await self._process_text(message_text, update, context)
+
+    async def _process_text(
+        self, message_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Process text through classification pipeline."""
         try:
             # Classify the message
             classification = self.claude.classify(message_text)
@@ -406,6 +424,34 @@ class UltrathinkBot:
         except Exception as e:
             logger.error(f"Error handling message: {e}")
             await update.message.reply_text(f"Error processing message: {e}")
+
+    async def handle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle voice messages by transcribing and processing as text."""
+        if not update.message or not update.message.voice:
+            return
+
+        # Only respond to configured chat
+        if update.effective_chat.id != self.config.telegram_chat_id:
+            return
+
+        try:
+            # Download voice file
+            file = await context.bot.get_file(update.message.voice.file_id)
+            audio_bytes = await file.download_as_bytearray()
+
+            # Transcribe
+            transcript = self.claude.transcribe_audio(bytes(audio_bytes))
+
+            # Send transcription preview to user
+            preview = transcript[:100] + "..." if len(transcript) > 100 else transcript
+            await update.message.reply_text(f"Heard: {preview}")
+
+            # Process through normal pipeline
+            await self._process_text(transcript, update, context)
+
+        except Exception as e:
+            logger.error(f"Error handling voice message: {e}")
+            await update.message.reply_text(f"Error processing voice: {e}")
 
     async def handle_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle replies for clarification or fixes."""
@@ -601,6 +647,7 @@ def main():
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_message)
     )
+    app.add_handler(MessageHandler(filters.VOICE, bot.handle_voice))
     app.add_handler(CommandHandler("briefing", bot.cmd_briefing))
     app.add_handler(CommandHandler("review", bot.cmd_review))
     app.add_handler(CommandHandler("status", bot.cmd_status))
