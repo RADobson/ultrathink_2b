@@ -29,16 +29,22 @@ Message:
 Return JSON with these fields based on category:
 
 For People:
-{{"name": "...", "context": "...", "next_action": "...", "notes": "..."}}
+{{"name": "...", "context": "...", "tasks": ["task1", "task2"], "notes": "..."}}
 
 For Projects:
-{{"name": "...", "status": "active|someday|done", "next_action": "...", "notes": "..."}}
+{{"name": "...", "status": "active|someday|done", "tasks": ["task1", "task2"], "notes": "..."}}
 
 For Ideas:
 {{"name": "...", "area": "...", "notes": "..."}}
 
 For Admin:
-{{"name": "...", "due": "...", "notes": "..."}}
+{{"name": "...", "due": "...", "tasks": ["task1", "task2"], "notes": "..."}}
+
+IMPORTANT for tasks:
+- Extract EACH distinct action as a SEPARATE item in the tasks array
+- "read manga and clean office" = ["Read manga", "Clean office"]
+- "buy milk, eggs, bread" = ["Buy milk", "Buy eggs", "Buy bread"]
+- Keep each task short and actionable
 
 Only include fields that are clearly present in the message."""
 

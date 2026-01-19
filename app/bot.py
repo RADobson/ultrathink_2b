@@ -360,9 +360,15 @@ class UltrathinkBot:
     def _format_content(self, fields: dict) -> str:
         """Format extracted fields as markdown content."""
         content = ""
-        if fields.get("next_action"):
-            # Format next_action as a checkbox task
-            content += f"## Next Action\n- [ ] {fields['next_action']}\n\n"
+        # Handle tasks array (new format)
+        if fields.get("tasks"):
+            content += "## Tasks\n"
+            for task in fields["tasks"]:
+                content += f"- [ ] {task}\n"
+            content += "\n"
+        # Backward compatibility: handle single next_action
+        elif fields.get("next_action"):
+            content += f"## Tasks\n- [ ] {fields['next_action']}\n\n"
         if fields.get("notes"):
             content += f"## Notes\n{fields['notes']}\n\n"
         if fields.get("context"):
