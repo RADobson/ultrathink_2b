@@ -109,9 +109,15 @@ Only include fields that are clearly present in the message."""
 
 BRIEFING_PROMPT = """You are a concise personal assistant. Based on these vault contents, create a morning briefing.
 
+IMPORTANT:
+- Only suggest tasks that are NOT marked as done
+- Unchecked tasks look like: - [ ] task
+- Completed tasks look like: - [x] task (IGNORE these)
+- Use the EXACT task text from the notes so the user can mark them done with "done: <task>"
+
 Format (use these EXACT headers):
 ## TOP 3 ACTIONS
-1. [Most urgent/important action]
+1. [Most urgent unchecked task - use exact text from note]
 2. [Second priority]
 3. [Third priority]
 
@@ -119,7 +125,7 @@ Format (use these EXACT headers):
 - [Any blocked items or items needing attention]
 
 ## SMALL WIN
-- [One easy quick win to build momentum]
+- [One easy unchecked task to build momentum]
 
 Keep each item to ONE line. Be specific and actionable.
 
@@ -544,8 +550,43 @@ class UltrathinkBot:
         await self._handle_done_standalone(update, note_hint)
 
     async def _handle_done_standalone(self, update: Update, note_hint: str):
-        """Mark a note as done (standalone message, not reply)."""
+        """Mark a checkbox task as done, or fall back to marking entire note done."""
         note_hint = note_hint.strip().lower()
+
+        # First, search for checkbox task matching hint
+        checkbox_pattern = re.compile(r"- \[ \] (.+)", re.IGNORECASE)
+        found_path = None
+        found_task = None
+
+        for category in CATEGORIES:
+            category_path = self.config.vault_path / category
+            if category_path.exists():
+                for file_path in category_path.glob("*.md"):
+                    try:
+                        content = file_path.read_text()
+                        for match in checkbox_pattern.finditer(content):
+                            task_text = match.group(1)
+                            if note_hint in task_text.lower():
+                                found_path = file_path
+                                found_task = task_text
+                                break
+                    except Exception:
+                        pass
+                    if found_path:
+                        break
+            if found_path:
+                break
+
+        if found_path and found_task:
+            # Mark specific checkbox task as done
+            content = found_path.read_text()
+            content = content.replace(f"- [ ] {found_task}", f"- [x] {found_task}")
+            found_path.write_text(content)
+            note_name = found_path.stem.replace("-", " ").title()
+            await update.message.reply_text(f"✓ '{found_task}' in '{note_name}'")
+            return
+
+        # Fallback: search for note by name/content and mark entire note as done
         found_path = None
         found_name = None
 
@@ -580,9 +621,9 @@ class UltrathinkBot:
             content = found_path.read_text()
             content = re.sub(r"status: \w+", "status: done", content)
             found_path.write_text(content)
-            await update.message.reply_text(f"Marked '{found_name}' as done")
+            await update.message.reply_text(f"Marked note '{found_name}' as done (no checkbox found)")
         else:
-            await update.message.reply_text(f"No note found matching: {note_hint}")
+            await update.message.reply_text(f"No task or note found matching: {note_hint}")
 
     async def _handle_fix_standalone(self, update: Update, new_category: str, note_hint: str):
         """Move a note to a different category (standalone message)."""
@@ -667,7 +708,8 @@ class UltrathinkBot:
         """Format extracted fields as markdown content."""
         content = ""
         if fields.get("next_action"):
-            content += f"## Next Action\n{fields['next_action']}\n\n"
+            # Format next_action as a checkbox task
+            content += f"## Next Action\n- [ ] {fields['next_action']}\n\n"
         if fields.get("notes"):
             content += f"## Notes\n{fields['notes']}\n\n"
         if fields.get("context"):
@@ -744,11 +786,58 @@ class UltrathinkBot:
 
 
 # =============================================================================
+# Migration
+# =============================================================================
+
+
+def migrate_to_checkboxes(vault_path: Path) -> list[str]:
+    """Migrate existing notes to checkbox format.
+
+    Converts **Next Action:** X to - [ ] X
+    Returns list of migrated file names.
+    """
+    migrated = []
+    for category in CATEGORIES:
+        category_path = vault_path / category
+        if category_path.exists():
+            for file_path in category_path.glob("*.md"):
+                try:
+                    content = file_path.read_text()
+                    # Convert **Next Action:** X to - [ ] X
+                    new_content = re.sub(
+                        r"\*\*Next Action:\*\*\s*(.+)",
+                        r"- [ ] \1",
+                        content
+                    )
+                    if new_content != content:
+                        file_path.write_text(new_content)
+                        migrated.append(file_path.name)
+                except Exception as e:
+                    logger.error(f"Error migrating {file_path}: {e}")
+    return migrated
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 
 def main():
+    import sys
+
+    # Handle migration command
+    if len(sys.argv) > 1 and sys.argv[1] == "--migrate":
+        vault_path = Path(os.environ.get("VAULT_PATH", "/vault"))
+        print(f"Migrating notes in {vault_path} to checkbox format...")
+        migrated = migrate_to_checkboxes(vault_path)
+        if migrated:
+            print(f"Migrated {len(migrated)} files:")
+            for name in migrated:
+                print(f"  - {name}")
+        else:
+            print("No files needed migration.")
+        return
+
     config = Config.from_env()
     bot = UltrathinkBot(config)
 
