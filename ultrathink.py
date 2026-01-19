@@ -566,6 +566,11 @@ class UltrathinkBot:
                             found_path = file_path
                             found_name = title_match.group(1)
                             break
+                        # Match against content body
+                        if note_hint in content.lower():
+                            found_path = file_path
+                            found_name = title_match.group(1) if title_match else file_path.stem
+                            break
                     except Exception:
                         pass
             if found_path:
