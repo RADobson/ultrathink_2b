@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Search</h1>
+      <p class="subtle">Query: {{ query or "-" }}</p>
+    </div>
+
+    {% if query and results %}
+      <ul class="list">
+        {% for entry in results %}
+          <li>
+            <a href="/edit?path={{ entry.path }}">{{ entry.name }}</a>
+            {% if entry.snippet %}
+              <div class="snippet">{{ entry.snippet }}</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% elif query %}
+      <p class="empty">No matches found.</p>
+    {% else %}
+      <p class="empty">Enter a search term to begin.</p>
+    {% endif %}
+  </section>
+{% endblock %}

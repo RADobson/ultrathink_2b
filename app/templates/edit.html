@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>{{ "New Note" if is_new else "Edit Note" }}</h1>
+      <p class="subtle">{{ path }}</p>
+    </div>
+
+    <form method="post" action="/edit" class="editor-form">
+      <input type="hidden" name="path" value="{{ path }}" />
+      <textarea name="content" rows="28">{{ content }}</textarea>
+      <div class="form-actions">
+        <button type="submit">Save</button>
+      </div>
+    </form>
+
+    {% if not is_new %}
+      <form method="post" action="/delete" class="danger-zone">
+        <input type="hidden" name="path" value="{{ path }}" />
+        <button type="submit" class="danger">Delete note</button>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -33,6 +33,7 @@ class VaultService:
         """Write a markdown note with YAML frontmatter."""
         safe_name = self._sanitize_filename(name)
         file_path = self.vault_path / category / f"{safe_name}.md"
+        file_path = self._unique_path(file_path)
 
         # Build frontmatter
         frontmatter = {
@@ -107,3 +108,15 @@ class VaultService:
         safe = re.sub(r'[<>:"/\\|?*]', "", name)
         safe = re.sub(r"\s+", "-", safe.strip())
         return safe[:50]  # Limit length
+
+    def _unique_path(self, file_path: Path) -> Path:
+        """Avoid overwriting existing notes by suffixing the filename."""
+        if not file_path.exists():
+            return file_path
+        stem = file_path.stem
+        suffix = file_path.suffix
+        for idx in range(2, 1000):
+            candidate = file_path.with_name(f"{stem}-{idx}{suffix}")
+            if not candidate.exists():
+                return candidate
+        raise RuntimeError(f"Could not find unique filename for {file_path.name}")

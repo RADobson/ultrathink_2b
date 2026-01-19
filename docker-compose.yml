@@ -15,32 +15,19 @@ services:
     volumes:
       - ./vault:/vault
 
-  filebrowser:
-    image: filebrowser/filebrowser
-    container_name: filebrowser
+  web:
+    build: .
+    container_name: ultrathink-web
     restart: unless-stopped
-    volumes:
-      - ./vault:/srv
-      - ./filebrowser.db:/database.db
-    ports:
-      - "8080:80"
+    user: "1000:1000"
+    command: ["uvicorn", "app.web:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
+      - VAULT_PATH=/vault
+      - WEB_USERNAME=${WEB_USERNAME:-admin}
+      - WEB_PASSWORD=${WEB_PASSWORD}
+      - WEB_SECRET=${WEB_SECRET}
       - TZ=${TIMEZONE:-Australia/Brisbane}
-
-  syncthing:
-    image: syncthing/syncthing
-    container_name: syncthing
-    restart: unless-stopped
-    hostname: ultrathink-server
     volumes:
-      - ./vault:/var/syncthing/vault
-      - ./syncthing-config:/var/syncthing/config
+      - ./vault:/vault
     ports:
-      - "8384:8384"   # Web UI
-      - "22000:22000/tcp"  # Sync protocol
-      - "22000:22000/udp"
-      - "21027:21027/udp"  # Discovery
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TIMEZONE:-Australia/Brisbane}
+      - "8080:8000"

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Vault Browser</h1>
+      <p class="subtle">Path: {{ path or "/" }}</p>
+      <a class="button" href="/edit?path={{ (path + '/' if path else '') }}New-Note.md">New note</a>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Folders</h2>
+        {% if dirs %}
+          <ul class="list">
+            {% for entry in dirs %}
+              <li><a href="/?path={{ entry.path }}">{{ entry.name }}/</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No folders.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>Notes</h2>
+        {% if files %}
+          <ul class="list">
+            {% for entry in files %}
+              <li><a href="/edit?path={{ entry.path }}">{{ entry.name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No notes.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

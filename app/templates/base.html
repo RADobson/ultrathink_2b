@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ultrathink Vault</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <a href="/">Ultrathink Vault</a>
+      </div>
+      <div class="actions">
+        <form method="get" action="/search" class="search-form">
+          <input type="text" name="q" placeholder="Search notes" value="{{ query or '' }}" />
+          <button type="submit">Search</button>
+        </form>
+        <form method="post" action="/logout">
+          <button type="submit" class="ghost">Logout</button>
+        </form>
+      </div>
+    </header>
+    <main class="page">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

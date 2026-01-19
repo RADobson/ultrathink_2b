@@ -62,6 +62,10 @@ cp .env.example .env
 docker compose up -d
 ```
 
+### 3b. Web Vault UI
+
+Open `http://<server-ip>:8080` and log in with `WEB_USERNAME` / `WEB_PASSWORD`.
+
 ### 4. Test
 
 Send a message to your bot:
@@ -125,12 +129,11 @@ Call Sarah to discuss numbers
 Need figures by end of month
 ```
 
-## Optional: Sync & Browse
+## Web Vault UI
 
-The docker-compose includes optional services:
+The docker-compose includes a built-in web UI for browsing and editing notes.
 
-- **Syncthing** (port 8384): Sync vault to your devices
-- **FileBrowser** (port 8080): Web UI to browse/edit notes
+- **Web UI** (port 8080): Simple login + markdown editor for the vault
 
 ## Environment Variables
 
@@ -142,6 +145,9 @@ The docker-compose includes optional services:
 | `OPENAI_API_KEY` | Yes | For Whisper transcription |
 | `TIMEZONE` | No | Default: Australia/Brisbane |
 | `CONFIDENCE_THRESHOLD` | No | Default: 0.6 |
+| `WEB_USERNAME` | No | Web UI login username (default: admin) |
+| `WEB_PASSWORD` | Yes (for web UI) | Web UI login password |
+| `WEB_SECRET` | No | Session secret for web UI (auto-generated if omitted) |
 
 ## License
 
