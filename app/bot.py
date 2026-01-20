@@ -2,6 +2,7 @@ import re
 import logging
 import pytz
 from typing import Optional
+from difflib import SequenceMatcher
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -21,6 +22,25 @@ class UltrathinkBot:
         self.claude = ClaudeService(config.anthropic_api_key, config.openai_api_key)
         self.state = StateManager()
         self.tz = pytz.timezone(config.timezone)
+
+    def _fuzzy_match(self, hint: str, text: str, threshold: float = 0.8) -> bool:
+        """Check if hint fuzzy-matches text (handles spelling variations like organize/organise)."""
+        hint = hint.lower()
+        text = text.lower()
+        # First try exact substring match
+        if hint in text:
+            return True
+        # Then try fuzzy matching on individual words
+        hint_words = hint.split()
+        text_words = text.split()
+        matched_words = 0
+        for hw in hint_words:
+            for tw in text_words:
+                ratio = SequenceMatcher(None, hw, tw).ratio()
+                if ratio >= threshold:
+                    matched_words += 1
+                    break
+        return matched_words == len(hint_words)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Main capture handler for new text messages."""
@@ -216,7 +236,7 @@ class UltrathinkBot:
                         content = file_path.read_text()
                         for match in checkbox_pattern.finditer(content):
                             task_text = match.group(1)
-                            if note_hint in task_text.lower():
+                            if self._fuzzy_match(note_hint, task_text):
                                 found_path = file_path
                                 found_task = task_text
                                 break
@@ -245,7 +265,7 @@ class UltrathinkBot:
             if category_path.exists():
                 for file_path in category_path.glob("*.md"):
                     # Match against filename (convert hyphens to spaces)
-                    if note_hint in file_path.stem.lower().replace("-", " "):
+                    if self._fuzzy_match(note_hint, file_path.stem.replace("-", " ")):
                         found_path = file_path
                         found_name = file_path.stem
                         break
@@ -253,12 +273,12 @@ class UltrathinkBot:
                     try:
                         content = file_path.read_text()
                         title_match = re.search(r"^# (.+)$", content, re.MULTILINE)
-                        if title_match and note_hint in title_match.group(1).lower():
+                        if title_match and self._fuzzy_match(note_hint, title_match.group(1)):
                             found_path = file_path
                             found_name = title_match.group(1)
                             break
                         # Match against content body
-                        if note_hint in content.lower():
+                        if self._fuzzy_match(note_hint, content):
                             found_path = file_path
                             found_name = title_match.group(1) if title_match else file_path.stem
                             break
