@@ -54,6 +54,7 @@ def main():
     app.add_handler(CommandHandler("briefing", bot.cmd_briefing))
     app.add_handler(CommandHandler("review", bot.cmd_review))
     app.add_handler(CommandHandler("status", bot.cmd_status))
+    app.add_handler(CommandHandler("help", bot.cmd_help))
 
     # Schedule briefings
     scheduler = AsyncIOScheduler(timezone=bot.tz)

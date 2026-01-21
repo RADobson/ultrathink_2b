@@ -544,3 +544,32 @@ class UltrathinkBot:
         status += f"\n*Total: {total} notes*"
 
         await update.message.reply_text(status, parse_mode="Markdown")
+
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show available commands."""
+        if update.effective_chat.id != self.config.telegram_chat_id:
+            return
+
+        help_text = """*Ultrathink Bot Commands*
+
+*Slash Commands*
+/help - Show this help message
+/status - Show vault status (note counts)
+/briefing - Trigger morning briefing
+/review - Trigger weekly review
+
+*Text Commands*
+`done: <task>` - Mark a task as done
+`add <task> to: <note>` - Add task to existing note
+`fix: <category> <note>` - Move note to category
+
+*Categories*
+People, Projects, Ideas, Admin
+
+*Voice*
+Send a voice message to auto-transcribe and file it
+
+*Tips*
+Reply to bot messages with a category name to clarify filing"""
+
+        await update.message.reply_text(help_text, parse_mode="Markdown")
