@@ -42,6 +42,32 @@ class UltrathinkBot:
                     break
         return matched_words == len(hint_words)
 
+    def _find_note_by_hint(self, hint: str) -> tuple[Optional["Path"], Optional[str]]:
+        """Find a note by hint (fuzzy matching against filename/title).
+
+        Returns (path, display_name) tuple, or (None, None) if not found.
+        """
+        from pathlib import Path
+        hint = hint.strip().lower()
+
+        for category in CATEGORIES:
+            category_path = self.config.vault_path / category
+            if not category_path.exists():
+                continue
+            for file_path in category_path.glob("*.md"):
+                # Match against filename (convert hyphens to spaces)
+                if self._fuzzy_match(hint, file_path.stem.replace("-", " ")):
+                    return file_path, file_path.stem.replace("-", " ").title()
+                # Match against title in content
+                try:
+                    content = file_path.read_text()
+                    title_match = re.search(r"^# (.+)$", content, re.MULTILINE)
+                    if title_match and self._fuzzy_match(hint, title_match.group(1)):
+                        return file_path, title_match.group(1)
+                except Exception:
+                    pass
+        return None, None
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Main capture handler for new text messages."""
         if not update.message or not update.message.text:
@@ -61,6 +87,12 @@ class UltrathinkBot:
         done_match = re.match(r"done:\s*(.+)", message_text, re.IGNORECASE)
         if done_match:
             await self._handle_done_standalone(update, done_match.group(1))
+            return
+
+        # Check for add: command (add task to existing note)
+        add_match = re.match(r"add:\s*(.+)", message_text, re.IGNORECASE)
+        if add_match:
+            await self._handle_add_task(update, add_match.group(1))
             return
 
         # Check for fix: command (standalone requires category + note)
@@ -251,9 +283,20 @@ class UltrathinkBot:
             # Mark specific checkbox task as done
             content = found_path.read_text()
             content = content.replace(f"- [ ] {found_task}", f"- [x] {found_task}")
+
+            # Check if all tasks are now complete
+            all_done = "- [ ] " not in content
+            if all_done:
+                content = re.sub(r"status: active", "status: done", content)
+
             found_path.write_text(content)
             note_name = found_path.stem.replace("-", " ").title()
-            await update.message.reply_text(f"✓ '{found_task}' in '{note_name}'")
+
+            # Build response message
+            msg = f"✓ '{found_task}' in '{note_name}'"
+            if all_done:
+                msg += "\n🎉 All tasks done! Note marked complete."
+            await update.message.reply_text(msg)
             return
 
         # Fallback: search for note by name/content and mark entire note as done
@@ -294,6 +337,42 @@ class UltrathinkBot:
             await update.message.reply_text(f"Marked note '{found_name}' as done (no checkbox found)")
         else:
             await update.message.reply_text(f"No task or note found matching: {note_hint}")
+
+    async def _handle_add_task(self, update: Update, text: str) -> None:
+        """Add a task to an existing note. Format: add: <note> - <task>"""
+        # Parse: "manga - Buy volume 3"
+        parts = text.split(" - ", 1)
+        if len(parts) != 2:
+            await update.message.reply_text("Format: add: <note> - <task>")
+            return
+
+        note_hint, task_text = parts[0].strip(), parts[1].strip()
+
+        # Find matching note
+        note_path, note_name = self._find_note_by_hint(note_hint)
+        if not note_path:
+            await update.message.reply_text(f"No note found matching '{note_hint}'")
+            return
+
+        content = note_path.read_text()
+
+        # Find Tasks section and append
+        if "## Tasks\n" in content:
+            content = content.replace("## Tasks\n", f"## Tasks\n- [ ] {task_text}\n")
+        elif "## Tasks" in content:
+            # Handle case where Tasks section exists but may have different formatting
+            content = re.sub(r"## Tasks\s*\n", f"## Tasks\n- [ ] {task_text}\n", content)
+        else:
+            # Add Tasks section before ## Notes if exists, else at end
+            if "## Notes" in content:
+                content = content.replace(
+                    "## Notes", f"## Tasks\n- [ ] {task_text}\n\n## Notes"
+                )
+            else:
+                content = content.rstrip() + f"\n\n## Tasks\n- [ ] {task_text}\n"
+
+        note_path.write_text(content)
+        await update.message.reply_text(f"✓ Added '{task_text}' to '{note_name}'")
 
     async def _handle_fix_standalone(self, update: Update, new_category: str, note_hint: str):
         """Move a note to a different category (standalone message)."""
