@@ -89,8 +89,8 @@ class UltrathinkBot:
             await self._handle_done_standalone(update, done_match.group(1))
             return
 
-        # Check for add: command (add task to existing note)
-        add_match = re.match(r"add:\s*(.+)", message_text, re.IGNORECASE)
+        # Check for add command (add task to existing note)
+        add_match = re.match(r"add\s+(.+)", message_text, re.IGNORECASE)
         if add_match:
             await self._handle_add_task(update, add_match.group(1))
             return
@@ -339,14 +339,17 @@ class UltrathinkBot:
             await update.message.reply_text(f"No task or note found matching: {note_hint}")
 
     async def _handle_add_task(self, update: Update, text: str) -> None:
-        """Add a task to an existing note. Format: add: <note> - <task>"""
-        # Parse: "manga - Buy volume 3"
-        parts = text.split(" - ", 1)
+        """Add a task to an existing note. Format: add <task> to: <note>"""
+        # Normalize voice input: "to colon" -> "to:"
+        text = re.sub(r"\bto\s+colon\b", "to:", text, flags=re.IGNORECASE)
+
+        # Parse: "Buy volume 3 to: manga"
+        parts = re.split(r"\s+to:\s*", text, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) != 2:
-            await update.message.reply_text("Format: add: <note> - <task>")
+            await update.message.reply_text("Format: add <task> to: <note>")
             return
 
-        note_hint, task_text = parts[0].strip(), parts[1].strip()
+        task_text, note_hint = parts[0].strip(), parts[1].strip()
 
         # Find matching note
         note_path, note_name = self._find_note_by_hint(note_hint)
